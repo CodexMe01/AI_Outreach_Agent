@@ -1,0 +1,4 @@
+/.emailer
+/.env
+/receiver_cache.db
+/__pycache__

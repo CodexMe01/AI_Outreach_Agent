@@ -1,0 +1,13 @@
+langgraph
+langchain
+langchain-ollama
+langchain-groq
+langchain-community
+tavily-python
+langchain_tavily
+config
+googleapiclient 2.0
+google
+rich
+notion-client
+python-dotenv
