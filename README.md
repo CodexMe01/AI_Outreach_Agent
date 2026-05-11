@@ -22,9 +22,6 @@ A **smart outreach email automation** tool powered by LangChain, LangGraph, Groq
 - **Extensible architecture** with clear separation of concerns (email generation, Notion handling, CLI/GUI entry points).
 - **Environment‑based configuration** for secret keys and Notion IDs.
 
-## Demo
-![Demo GIF](demo.gif)
-
 ## Installation
 ```bash
 # Clone the repository
