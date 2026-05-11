@@ -1,6 +1,6 @@
 # Smart Outreach Emailer
 
-![GitHub stars](https://img.shields.io/github/stars/yourusername/Smart_Outreach_Emailer?style=social)
+![GitHub stars](https://img.shields.io/github/stars/CodexMe01/AI_Outreach_Agent?style=social)
 
 A **smart outreach email automation** tool powered by LangChain, LangGraph, Groq LLM, and Notion integration. It helps you generate personalized B2B outreach emails at scale while keeping a clean record of each interaction in your Notion CRM.
 
