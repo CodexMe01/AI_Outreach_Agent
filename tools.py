@@ -55,7 +55,7 @@ def tavily_search(query: str, max_results: int = 4) -> List[SearchResult]:
 
 
 
-# DuckDuckGo instant-answer fallback (no key required)
+# DuckDuckGo instant-answer fallback 
 # ─────────────────────────────────────────────────────────────────────────────
 def duckduckgo_search(query: str, max_results: int = 4) -> List[SearchResult]:
     """

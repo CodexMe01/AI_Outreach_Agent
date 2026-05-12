@@ -1,224 +1,172 @@
-"""
-Email Drafter Agent — Interactive CLI
-======================================
-Run: python main.py
-"""
 from __future__ import annotations
 import sys
 import os
-
 import sqlite3
-from cache import DB_PATH       # same DB_PATH = "receiver_cache.db"
+
+import streamlit as st
+
+from cache import DB_PATH
+from config import SenderInfo, ReceiverInfo, PitchContext
+from agent import run_email_drafter
+from notion_crm import save_to_notion
 
 
-from rich.console import Console
-from rich.panel   import Panel
-from rich.prompt  import Prompt, Confirm
-from rich.text    import Text
-from rich.rule    import Rule
-from rich         import print as rprint
-from rich.syntax  import Syntax
-
-from config       import SenderInfo, ReceiverInfo, PitchContext
-from agent        import run_email_drafter
-from notion_crm   import save_to_notion
-
-console = Console()
-
-
-# Banner
+# Setup Streamlit Page
 # ─────────────────────────────────────────────────────────────────────────────
-def print_banner():
-    console.print()
-    console.print(Panel.fit(
-        "[bold cyan]✉  AI Email Drafter Agent[/bold cyan]\n"
-        "[dim]LangGraph · Groq LLM · Personalised B2B Outreach[/dim]",
-        border_style="cyan",
-        padding=(1, 4),
-    ))
-    console.print()
+st.set_page_config(
+    page_title="Smart Outreach Emailer",
+    page_icon="",
+    layout="wide",
+)
+
+st.title("Smart Outreach Emailer")
+st.markdown("Generate leads . Analyzes Relevance . Drafts Email")
+
+# Env check
+if not os.getenv("GROQ_API_KEY"):
+    st.error("GROQ_API_KEY not set. Add it to your .env file.")
+    st.stop()
 
 
 
-# Input collection helpers
-# ───────────────────────────────────────────────────────────────────────────────────────────────────
-def collect_sender() -> SenderInfo:
+# Sidebar / Sender Info
+# ─────────────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.header("📤 Sender Info")
+    sender_name = st.text_input("Name", value="Pratyush")
+    sender_role = st.text_input("Role", value="Product Manager")
+    sender_company = st.text_input("Company Name", value="PRG")
+    sender_website = st.text_input("Website", value="https://pratyushrdesign.framer.website/")
+    sender_desc = st.text_area("Description", value="Providing Branding, UI/UX, and Web Design Solutions to Elevate Your Digital Experience.")
+    sender_service = st.text_input("Service Offered", value="Branding, UI/UX, and Web Design")
+    sender_usp = st.text_input("USP", value="Perfection, uniqueness, delivering the best ")
+
+    sender = SenderInfo(
+        name=sender_name,
+        role=sender_role,
+        company_name=sender_company,
+        company_website=sender_website or None,
+        company_desc=sender_desc or None,
+        service_offered=sender_service,
+        usp=sender_usp or None,
+    )
+# Main Form: Pitch Context & Receiver Selection
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Fetch cached companies
+def get_cached_companies():
+    if not os.path.exists(DB_PATH):
+        return []
+    try:
+        con = sqlite3.connect(DB_PATH)
+        rows = con.execute(
+            "SELECT company_key, company_name, receiver FROM receiver_cache ORDER BY fetched_at DESC"
+        ).fetchall()
+        con.close()
+        return rows
+    except Exception as e:
+        st.error(f"Database error: {e}")
+        return []
+
+rows = get_cached_companies()
+
+if not rows:
+    st.warning("No cached companies found. Run Researcher.py first to fetch companies.")
+    st.stop()
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("📥 Select the Target Company")
+    st.markdown("Choose the companies you want to draft emails for:")
     
-    return SenderInfo(
-        name            = "Pratyush",
-        role            = "Product Manager",
-        company_name    = "PRG",
-        company_website = "https://pratyushrdesign.framer.website/"  or None,
-        company_desc    = "Providing Branding, UI/UX, and Web Design Solutions to Elevate Your Digital Experience."     or None,
-        service_offered = "Branding, UI/UX, and Web Design",
-        usp             = "Perfection, uniqueness, delivering the best "      or None,
-    )
+    # Tick boxes for companies
+    selected_receivers = []
+    
+    # Use a container with a scrollbar if there are many rows
+    with st.container(height=500):
+        for i, (key, name, receiver_json) in enumerate(rows):
+            receiver = ReceiverInfo.model_validate_json(receiver_json)
+            
+            industry = receiver.industry or "N/A"
+            website = receiver.company_website or "N/A"
+            trigger_point = receiver.trigger_point or "N/A"
+            
+            label = f"**{name}**  \n*Industry:* {industry} | *Website:* {website} | *Trigger Point:* {trigger_point}"
+            
+            # The checkbox state
+            if st.checkbox(label, key=f"company_{i}"):
+                selected_receivers.append(receiver)
+    
+    if selected_receivers:
+        st.info(f"Selected **{len(selected_receivers)}** companies.")
 
-import Reasearcher
-# Reasearcher()
-def collect_receiver() -> ReceiverInfo:
-    console.print(Rule("[bold yellow]📥 Receiver / Target Company[/bold yellow]"))
-
-    # ── Fetch all cached companies from SQLite ─────────────────────────────────
-    con  = sqlite3.connect(DB_PATH)
-    rows = con.execute(
-        "SELECT company_key, company_name, receiver FROM receiver_cache ORDER BY fetched_at DESC"
-    ).fetchall()
-    con.close()
-
-    if not rows:
-        console.print("[red]No cached companies found. Run Researcher.py first.[/red]")
-        raise SystemExit(1)
-
-    # ── Display the list ───────────────────────────────────────────────────────
-    console.print(f"\n[dim]Found {len(rows)} cached companies:[/dim]\n")
-    for i, (key, name, _) in enumerate(rows, 1):
-        console.print(f"  [cyan]{i}[/cyan]. {name}")
-
-    # ── Let user pick one ──────────────────────────────────────────────────────
-    choice = Prompt.ask(
-        "\n[yellow]Select company number[/yellow]",
-        choices=[str(i) for i in range(1, len(rows) + 1)],
-    )
-
-    # ── Deserialize the chosen row back into ReceiverInfo ─────────────────────
-    selected_json = rows[int(choice) - 1][2]        # column 2 = receiver JSON
-    receiver      = ReceiverInfo.model_validate_json(selected_json)
-
-    # ── Show what was loaded ───────────────────────────────────────────────────
-    console.print()
-    console.print(Panel(
-        f"[bold]{receiver.company_name}[/bold]  ·  {receiver.company_type}\n"
-        f"[dim]Industry :[/dim] {receiver.industry or 'N/A'}\n"
-        f"[dim]Website  :[/dim] {receiver.company_website or 'N/A'}\n"
-        f"[dim]Contact  :[/dim] {receiver.name or 'Unknown'}  —  {receiver.role or 'Unknown'}",
-        title="[yellow]Loaded from cache[/yellow]",
-        border_style="yellow",
-    ))
-    console.print()
-
-    return receiver
-
-def collect_pitch_context() -> PitchContext:
-    console.print(Rule("[bold magenta] Pitch Context[/bold magenta]"))
-    goal    = Prompt.ask(
-        "[magenta]Email goal[/magenta]",
-        choices=["demo", "discovery_call", "free_trial", "partnership", "custom"],
-        default="demo",
-    )
+with col2:
+    st.subheader(" Pitch Context")
+    goal = st.selectbox("Email goal", ["demo", "discovery_call", "free_trial", "partnership", "custom"])
     if goal == "custom":
-        goal = Prompt.ask("[magenta]Describe your goal[/magenta]")
-
-    tone = Prompt.ask(
-        "[magenta]Tone[/magenta]",
-        choices=["professional", "friendly", "bold", "concise"],
-        default="professional",
-    )
-    length = Prompt.ask(
-        "[magenta]Email length[/magenta]",
-        choices=["short", "medium", "long"],
-        default="medium",
-    )
-    pain_points   = Prompt.ask("[magenta]Known pain points of target[/magenta] [dim](press Enter to skip)[/dim]", default="")
-    subject_hint  = Prompt.ask("[magenta]Subject line hint[/magenta] [dim](press Enter to skip)[/dim]", default="")
-    custom_notes  = Prompt.ask("[magenta]Extra instructions[/magenta] [dim](press Enter to skip)[/dim]", default="")
-    console.print()
-    return PitchContext(
-        goal          = goal,
-        tone          = tone,
-        email_length  = length,
-        pain_points   = pain_points  or None,
-        subject_hint  = subject_hint or None,
-        custom_notes  = custom_notes or None,
-    )
-
-
-# Display result
-# ───────────────────────────────────────────────────────────────────────────────────────────────────
-
-def display_result(result: dict):
-    console.print()
-    console.print(Rule("[bold cyan] Generated Outreach Email[/bold cyan]"))
-    console.print()
-
-    # Subject
-    if result.get("subject_line"):
-        console.print(Panel(
-            f"[bold]{result['subject_line']}[/bold]",
-            title="[cyan]Subject Line[/cyan]",
-            border_style="cyan",
-        ))
-        console.print()
-
-    # Email body (strip leading/trailing separators)
-    body = result["final_email"]
-    for artifact in ["SUBJECT:", "---"]:
-        if body.startswith(artifact):
-            body = body[len(artifact):].strip()
-
-    console.print(Panel(
-        body,
-        title="[cyan]Email Body[/cyan]",
-        border_style="dim",
-        padding=(1, 2),
-    ))
-
-    # Metadata
-    console.print()
-    console.print(
-        f"[dim]✔ Review passed:[/dim] {'[green]Yes[/green]' if result['review_passed'] else '[yellow]Forced finalize[/yellow]'}  "
-        f"[dim]| Revision cycles:[/dim] [cyan]{result['iterations']}[/cyan]"
-    )
-
-    # Optionally show analysis
-    if Confirm.ask("\n[dim]Show relevance analysis?[/dim]", default=False):
-        console.print()
-        console.print(Panel(
-            result.get("analysis", "N/A"),
-            title="[magenta]Strategy Analysis[/magenta]",
-            border_style="magenta",
-        ))
-
-
-# Entry point
-# ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-def main():
-    print_banner()
-
-    # Env check
-    if not os.getenv("GROQ_API_KEY"):
-        console.print("[bold red]❌ GROQ_API_KEY not set.[/bold red] Add it to your .env file.\n")
-        sys.exit(1)
-
-    sender   = collect_sender()
-    receiver = collect_receiver()
-    ctx      = collect_pitch_context()
-
-    # Confirm before running
-    console.print(Panel.fit(
-        f"[bold]Sender:[/bold]   {sender.name} · {sender.role} @ {sender.company_name}\n"
-        f"[bold]Receiver:[/bold] {receiver.name or 'Unknown'} @ {receiver.company_name} ({receiver.company_type})\n"
-        f"[bold]Goal:[/bold]     {ctx.goal}  |  [bold]Tone:[/bold] {ctx.tone}  |  [bold]Length:[/bold] {ctx.email_length}",
-        title="[cyan]Summary[/cyan]",
-        border_style="cyan",
-    ))
-    if not Confirm.ask("\nProceed?", default=True):
-        console.print("Aborted.")
-        return
-
-    console.print()
-    with console.status("[bold cyan]Running email drafter agent…[/bold cyan]", spinner="dots"):
-        result = run_email_drafter(sender, receiver, ctx)
-
-    display_result(result)
-    
-    # Save to Notion database
-    console.print()
-    with console.status("[bold cyan]Saving to Notion database…[/bold cyan]", spinner="dots"):
-        save_to_notion(receiver)
+        goal = st.text_input("Describe your custom goal")
         
-    console.print()
+    tone = st.selectbox("Tone", ["professional", "friendly", "bold", "concise"])
+    length = st.selectbox("Email length", ["short", "medium", "long"], index=1)
+    
+    pain_points = st.text_area("Known pain points (optional)")
+    subject_hint = st.text_input("Subject line hint (optional)")
+    custom_notes = st.text_input("Extra instructions (optional)")
+
+    ctx = PitchContext(
+        goal=goal,
+        tone=tone,
+        email_length=length,
+        pain_points=pain_points or None,
+        subject_hint=subject_hint or None,
+        custom_notes=custom_notes or None,
+    )
 
 
-if __name__ == "__main__":
-    main()
+# Execution
+# ─────────────────────────────────────────────────────────────────────────────
+st.divider()
+
+if st.button(" Generate Emails", type="primary"):
+    if not selected_receivers:
+        st.error("Please select at least one company to generate an email for.")
+    else:
+        for idx, receiver in enumerate(selected_receivers):
+            st.subheader(f"Email {idx+1}: {receiver.company_name}")
+            
+            with st.spinner(f"Drafting email for {receiver.company_name}..."):
+                try:
+                    result = run_email_drafter(sender, receiver, ctx)
+                    
+                    # Display Results
+                    subject = result.get('subject_line', 'No Subject Generated')
+                    body = result.get('final_email', '')
+                    
+                    # Clean up body prefixes if needed
+                    for artifact in ["SUBJECT:", "---"]:
+                        if body.startswith(artifact):
+                            body = body[len(artifact):].strip()
+                            
+                    with st.expander(f"Subject: {subject}", expanded=True):
+                        st.write(body)
+                        
+                        cols = st.columns(2)
+                        with cols[0]:
+                            review_passed = result.get('review_passed', False)
+                            st.caption(f"**Review Passed:** {'Yes' if review_passed else 'Forced Finalize'}")
+                            st.caption(f"**Iterations:** {result.get('iterations', 0)}")
+                            
+                        
+                    if 'analysis' in result and result['analysis']:
+                        
+                        with st.expander("Show Analysis"):
+                            st.write(result['analysis'])
+                                    
+                    # Save to Notion
+                    with st.spinner("Saving to Notion..."):
+                        save_to_notion(receiver)
+                    st.success(f"Saved to Notion for {receiver.company_name}!")
+                    
+                except Exception as e:
+                    st.error(f"Error generating email for {receiver.company_name}: {e}")

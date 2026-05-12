@@ -11,3 +11,4 @@ google
 rich
 notion-client
 python-dotenv
+streamlit

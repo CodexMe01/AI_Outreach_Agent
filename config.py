@@ -1,7 +1,3 @@
-"""
-Configuration and State Definitions for Email Drafter Agent
-"""
-
 import os
 from typing import Annotated, List, Optional
 from pydantic import BaseModel, Field
@@ -11,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ─────────────────────────────────────────────
+
 # Environment
 # ─────────────────────────────────────────────
 GROQ_API_KEY    = os.getenv("GROQ_API_KEY", "")
@@ -20,7 +16,7 @@ GROQ_MODEL      = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "4"))
 
 
-# ─────────────────────────────────────────────
+
 # Input / domain models
 # ─────────────────────────────────────────────
 class SenderInfo(BaseModel):
@@ -42,6 +38,7 @@ class ReceiverInfo(BaseModel):
     company_website:Optional[str] = Field(None,  description="Recipient company website URL")
     company_type:   str = Field("startup", description="'startup' or 'enterprise'")
     industry:       Optional[str] = Field(None,  description="Industry / domain of recipient company")
+    trigger_point:  Optional[str] = Field(None,  description="Insight or trigger point explaining why to contact them now")
 
 class CompanyList(BaseModel):
     companies: List[ReceiverInfo] = Field(
@@ -59,7 +56,6 @@ class PitchContext(BaseModel):
     custom_notes:   Optional[str] = Field(None,  description="Any extra instructions for the agent")
 
 
-# ─────────────────────────────────────────────
 # LangGraph State  (all fields are reducers-compatible)
 # ─────────────────────────────────────────────
 class AgentState(TypedDict):

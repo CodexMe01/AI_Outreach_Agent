@@ -42,7 +42,7 @@ class State(TypedDict):
 
 # ── Node 1 — Research ──────────────────────────────────────────────────────────
 def tool_calling_llm(state: State):
-    # ▼▼▼ 2. CHECK cache BEFORE hitting the web ▼▼▼
+    # 2. CHECK cache BEFORE hitting the web 
     # Pull the company name from the last human message if possible
     last_human = next(
         (m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)),
@@ -94,11 +94,12 @@ def validate_and_extract(state: State):
                 company_website = company.company_website,
                 company_type    = company.company_type,
                 industry        = company.industry,
+                trigger_point   = company.trigger_point,
             )
             for company in result.companies
         ]
 
-        # ▼▼▼ 3. SAVE to SQLite right after building the list ▼▼▼
+        #3. SAVE to SQLite right after building the list 
         save_receivers(receiver_list)
         print(f" Saved {len(receiver_list)} companies to cache")
 
