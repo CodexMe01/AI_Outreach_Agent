@@ -2,3 +2,6 @@
 /.env
 /receiver_cache.db
 /__pycache__
+/service_account.json
+/services/emailer.py
+/services/notion_crm.py

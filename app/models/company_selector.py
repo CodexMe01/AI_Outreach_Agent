@@ -1,14 +1,16 @@
 import os
-import re
 import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+import re
 import math
 import pickle
 import sqlite3
 import pandas as pd
 from typing import List, Tuple, Dict, Any, Optional
 
-from config import ReceiverInfo
-from cache import DB_PATH
+from app.core.config import ReceiverInfo
+from app.services.cache import DB_PATH
 
 # ── Load Model ─────────────────────────────────────────────────────────────────
 import os
@@ -311,11 +313,12 @@ def fetch_companies_cached() -> List[ReceiverInfo]:
 def fetch_companies_live(query: str = None) -> List[ReceiverInfo]:
     """Runs the Reasearcher.py graph to scrape and extract companies in real-time."""
     try:
-        from Reasearcher import graph, RESEARCH_SYSTEM, RESEARCH_HUMAN
+        from app.agents.researcher import graph, RESEARCH_SYSTEM, RESEARCH_HUMAN
         from langchain_core.messages import HumanMessage
         
         human_msg = HumanMessage(content=query) if query else RESEARCH_HUMAN
-        config = {"configurable": {"thread_id": "company_selector_run"}}
+        import uuid
+        config = {"configurable": {"thread_id": uuid.uuid4().hex}}
         
         print("Running Reasearcher live search (this may take a minute)...")
         result = graph.invoke(

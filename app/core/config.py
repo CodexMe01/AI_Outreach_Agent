@@ -12,7 +12,7 @@ load_dotenv()
 # ─────────────────────────────────────────────
 GROQ_API_KEY    = os.getenv("GROQ_API_KEY", "")
 TAVILY_API_KEY  = os.getenv("TAVILY_API_KEY", "")
-GROQ_MODEL      = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL      = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "4"))
 
 
@@ -38,6 +38,10 @@ class ReceiverInfo(BaseModel):
     company_website:Optional[str] = Field(None,  description="Recipient company website URL")
     company_type:   str = Field("startup", description="'startup' or 'enterprise'")
     industry:       Optional[str] = Field(None,  description="Industry / domain of recipient company")
+    funding_amount: str = Field(..., description = "Recent Funding Amount (Must)")
+    funding_type: str = Field(..., description = "Type of Recent Funding or Investment round like [grant, pre_seed, seed, pre_series_a, series_a, series_b, series_c, series_d_plus, debt, private_equity, unknown  (Must)" )
+    funding_date: str = Field(..., description = "Date of Recent funding round")
+    company_location: str = Field(..., description = "What is the location headquarter of company")
     trigger_point:  Optional[str] = Field(None,  description="Insight or trigger point explaining why to contact them now")
 
 class CompanyList(BaseModel):

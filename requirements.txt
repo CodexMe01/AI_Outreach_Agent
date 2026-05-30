@@ -6,9 +6,10 @@ langchain-community
 tavily-python
 langchain_tavily
 config
-googleapiclient 2.0
+google-api-python-client>=2.0
 google
 rich
 notion-client
 python-dotenv
 streamlit
+scikit-learn==1.6.1

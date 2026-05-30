@@ -4,11 +4,15 @@ import os
 import sqlite3
 
 import streamlit as st
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from cache import DB_PATH
-from config import SenderInfo, ReceiverInfo, PitchContext
-from agent import run_email_drafter
-from notion_crm import save_to_notion
+from app.services.cache import DB_PATH
+from app.core.config import SenderInfo, ReceiverInfo, PitchContext
+from app.agents.agent import run_email_drafter
+from app.services.notion_crm import save_to_notion
+from app.models.company_selector import select_companies
 
 
 # Setup Streamlit Page
@@ -74,28 +78,65 @@ if not rows:
     st.warning("No cached companies found. Run Researcher.py first to fetch companies.")
     st.stop()
 
+# Parse and get ML predictions for all companies
+parsed_receivers = [ReceiverInfo.model_validate_json(row[2]) for row in rows]
+predictions = select_companies(parsed_receivers)
+
+companies_data = []
+ml_selected_count = 0
+for i, (key, name, receiver_json) in enumerate(rows):
+    receiver = parsed_receivers[i]
+    pred = predictions[i][1]
+    if pred == 1:
+        ml_selected_count += 1
+    companies_data.append({
+        "index": i,
+        "key": key,
+        "name": name,
+        "receiver": receiver,
+        "prediction": pred
+    })
+
 col1, col2 = st.columns([2, 1])
 
 with col1:
     st.subheader("📥 Select the Target Company")
-    st.markdown("Choose the companies you want to draft emails for:")
     
-    # Tick boxes for companies
+    # Display ML Summary metrics with nice UI styling
+    st.markdown(f"**ML Classification Summary:** 🎯 **{ml_selected_count}** of **{len(companies_data)}** recommended for outreach.")
+    
+    # Horizontal filter options
+    filter_option = st.radio(
+        "Filter list by ML relevance prediction:",
+        options=["All Startups", "ML Selected Only (Highly Relevant)", "ML Excluded Only (Low Relevance)"],
+        horizontal=True
+    )
+    
     selected_receivers = []
     
-    # Use a container with a scrollbar if there are many rows
     with st.container(height=500):
-        for i, (key, name, receiver_json) in enumerate(rows):
-            receiver = ReceiverInfo.model_validate_json(receiver_json)
+        for comp in companies_data:
+            pred = comp["prediction"]
             
+            # Apply filter selection
+            if filter_option == "ML Selected Only (Highly Relevant)" and pred != 1:
+                continue
+            if filter_option == "ML Excluded Only (Low Relevance)" and pred != 0:
+                continue
+                
+            receiver = comp["receiver"]
             industry = receiver.industry or "N/A"
             website = receiver.company_website or "N/A"
             trigger_point = receiver.trigger_point or "N/A"
             
-            label = f"**{name}**  \n*Industry:* {industry} | *Website:* {website} | *Trigger Point:* {trigger_point}"
+            # Show a beautiful badge indicating ML status
+            badge = "🟢 **ML SELECTED (High Fit)**" if pred == 1 else "❌ **ML EXCLUDED (Low Fit)**"
+            label = f"**{comp['name']}** — {badge}  \n*Industry:* {industry} | *Website:* {website} | *Trigger Point:* {trigger_point}"
             
-            # The checkbox state
-            if st.checkbox(label, key=f"company_{i}"):
+            # Default checkbox state: True if ML prediction is 1, False if 0
+            default_val = (pred == 1)
+            
+            if st.checkbox(label, key=f"company_{comp['index']}", value=default_val):
                 selected_receivers.append(receiver)
     
     if selected_receivers:
@@ -132,8 +173,21 @@ if st.button(" Generate Emails", type="primary"):
     if not selected_receivers:
         st.error("Please select at least one company to generate an email for.")
     else:
-        for idx, receiver in enumerate(selected_receivers):
-            st.subheader(f"Email {idx+1}: {receiver.company_name}")
+        # Enforce that only leads selected by ML (prediction == 1) are processed by agent.py
+        valid_receivers = []
+        for r in selected_receivers:
+            # Find the prediction for this receiver
+            pred = next((c["prediction"] for c in companies_data if c["receiver"].company_name == r.company_name), 0)
+            if pred == 1:
+                valid_receivers.append(r)
+            else:
+                st.warning(f"⚠️ Skipping outreach generation for **{r.company_name}** because the ML model classified it as Excluded.")
+        
+        if not valid_receivers:
+            st.error("No valid ML-selected companies are selected for generation.")
+        else:
+            for idx, receiver in enumerate(valid_receivers):
+                st.subheader(f"Email {idx+1}: {receiver.company_name}")
             
             with st.spinner(f"Drafting email for {receiver.company_name}..."):
                 try:

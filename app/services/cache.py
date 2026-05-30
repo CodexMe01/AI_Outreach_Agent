@@ -1,9 +1,10 @@
 import sqlite3, time
 from typing import Optional
-from config import ReceiverInfo
+from app.core.config import ReceiverInfo
+import os
 
-
-DB_PATH = "receiver_cache.db"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DB_PATH = os.path.join(BASE_DIR, "data", "receiver_cache.db")
 
 # ── Init ───────────────────────────────────────────────────────────────────────
 def init_db():

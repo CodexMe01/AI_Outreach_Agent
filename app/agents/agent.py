@@ -6,14 +6,14 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 
-from config import (
+from app.core.config import (
     AgentState, SenderInfo, ReceiverInfo, PitchContext,
     GROQ_API_KEY, GROQ_MODEL, MAX_SEARCH_RESULTS
 )
 
 
-from tools import research_company, research_market_context
-from prompts import (
+from app.core.tools import research_company, research_market_context
+from app.core.prompts import (
     SENDER_RESEARCH_PROMPT,
     RECEIVER_RESEARCH_PROMPT,
     MARKET_RESEARCH_PROMPT,
@@ -31,6 +31,7 @@ def get_llm(temperature: float = 0.7) -> ChatGroq:
         api_key=GROQ_API_KEY,
         model=GROQ_MODEL,
         temperature=temperature,
+        max_tokens=1500
     )
 
 
@@ -111,12 +112,16 @@ def research_market(state: AgentState) -> dict:
     prompt = MARKET_RESEARCH_PROMPT.format(
         service       = sender.service_offered,
         industry      = receiver.industry or "technology",
+        funding_date = receiver.funding_date,
+        funding_amount = receiver.funding_amount,
         company_type  = receiver.company_type,
+
         search_results = search_results,
     )
 
     insights = llm_call(prompt, temperature=0.3)
     return {"market_insights": insights}
+
 
 
 
@@ -384,7 +389,21 @@ def run_email_drafter(
             iterations     : int  – number of revision cycles
             review_passed  : bool – whether review auto-approved
             analysis       : str  – relevance analysis (debug)
+            skipped        : bool – True if company_selector filtered this company out
     """
+    # Check eligibility using the company selector model
+    from app.models.company_selector import select_companies
+    predictions = select_companies([receiver])
+    if predictions and predictions[0][1] == 0:
+        return {
+            "final_email": "",
+            "subject_line": "",
+            "iterations": 0,
+            "review_passed": False,
+            "analysis": "Skipped: Not selected for outreach by the Company Selector (ML Prediction: 0).",
+            "skipped": True
+        }
+
     app = build_graph()
 
     initial_state: AgentState = {
