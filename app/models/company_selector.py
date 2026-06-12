@@ -313,7 +313,7 @@ def fetch_companies_cached() -> List[ReceiverInfo]:
 def fetch_companies_live(query: str = None) -> List[ReceiverInfo]:
     """Runs the Reasearcher.py graph to scrape and extract companies in real-time."""
     try:
-        from app.agents.researcher import graph, RESEARCH_SYSTEM, RESEARCH_HUMAN
+        from app.agents.lead_researcher import graph, RESEARCH_SYSTEM, RESEARCH_HUMAN
         from langchain_core.messages import HumanMessage
         
         human_msg = HumanMessage(content=query) if query else RESEARCH_HUMAN

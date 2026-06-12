@@ -10,6 +10,7 @@ from app.core.config import (
     AgentState, SenderInfo, ReceiverInfo, PitchContext,
     GROQ_API_KEY, GROQ_MODEL, MAX_SEARCH_RESULTS
 )
+from app.models.company_selector import select_companies
 
 
 from app.core.tools import research_company, research_market_context
@@ -40,6 +41,32 @@ def llm_call(prompt: str, temperature: float = 0.7) -> str:
     llm = get_llm(temperature=temperature)
     response = llm.invoke([HumanMessage(content=prompt)])
     return response.content.strip()
+
+
+# Node: company_selector
+# ─────────────────────────────────────────────────────────────────────────────
+def company_selector(state: AgentState) -> dict:
+    """ML-based filter: checks if receiver is worth targeting before any LLM calls."""
+    print(" [Node] Running ML company selector...")
+    receiver: ReceiverInfo = state["receiver"]
+    predictions = select_companies([receiver])
+    if predictions and predictions[0][1] == 0:
+        print(f"  [Selector] REJECTED: {receiver.company_name} (ML score = 0). Skipping.")
+        return {
+            "final_email":  "SKIPPED",
+            "review_passed": False,
+            "errors": ["Company rejected by ML selector."],
+        }
+    print(f"  [Selector] APPROVED: {receiver.company_name} (ML score = 1). Proceeding.")
+    return {"errors": []}
+
+
+def route_after_selector(state: AgentState) -> str:
+    """Route to END if company was rejected, otherwise start both research nodes."""
+    if state.get("final_email") == "SKIPPED":
+        return "end"
+    # Return one of the two research keys; LangGraph will fan out via the mapping
+    return "research_sender"
 
 
 # Node: research_sender
@@ -326,6 +353,7 @@ def build_graph():
     graph = StateGraph(AgentState)
 
     # Register nodes
+    graph.add_node("company_selector",   company_selector)
     graph.add_node("research_sender",    research_sender)
     graph.add_node("research_receiver",  research_receiver)
     graph.add_node("research_market",    research_market)
@@ -336,9 +364,24 @@ def build_graph():
     graph.add_node("finalize",           finalize)
 
     # ── Edges ────────────────────────────────────────────────────────────────
-    # Parallel research phase: all three run concurrently
-    graph.add_edge(START, "research_sender")
-    graph.add_edge(START, "research_receiver")
+    # Entry point: ML filter first
+    graph.add_edge(START, "company_selector")
+
+    # Route based on ML prediction via single conditional edge:
+    # - REJECTED → END immediately
+    # - APPROVED → start_research (pass-through that fans out to both research nodes)
+    graph.add_node("start_research", lambda state: {})   # no-op fan-out node
+    graph.add_conditional_edges(
+        "company_selector",
+        route_after_selector,
+        {
+            "end":             END,
+            "research_sender": "start_research",
+        }
+    )
+    # Fan out in parallel from the pass-through node
+    graph.add_edge("start_research", "research_sender")
+    graph.add_edge("start_research", "research_receiver")
 
     # After both sender + receiver research, do market research
     graph.add_edge("research_sender",   "research_market")
@@ -391,19 +434,6 @@ def run_email_drafter(
             analysis       : str  – relevance analysis (debug)
             skipped        : bool – True if company_selector filtered this company out
     """
-    # Check eligibility using the company selector model
-    from app.models.company_selector import select_companies
-    predictions = select_companies([receiver])
-    if predictions and predictions[0][1] == 0:
-        return {
-            "final_email": "",
-            "subject_line": "",
-            "iterations": 0,
-            "review_passed": False,
-            "analysis": "Skipped: Not selected for outreach by the Company Selector (ML Prediction: 0).",
-            "skipped": True
-        }
-
     app = build_graph()
 
     initial_state: AgentState = {
@@ -426,7 +456,18 @@ def run_email_drafter(
     }
 
     final_state = app.invoke(initial_state)
-    
+
+    # Detect ML-rejected companies
+    if final_state.get("final_email") == "SKIPPED":
+        return {
+            "final_email":  "",
+            "subject_line": "",
+            "iterations":   0,
+            "review_passed": False,
+            "analysis": "Skipped: Not selected for outreach by the Company Selector (ML Prediction: 0).",
+            "skipped": True,
+        }
+
     return {
         "final_email":   final_state.get("final_email", ""),
         "subject_line":  final_state.get("subject_line", ""),
