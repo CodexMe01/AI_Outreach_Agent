@@ -13,4 +13,4 @@ notion-client
 python-dotenv
 streamlit
 scikit-learn==1.6.1
-pydentic
+pydantic
